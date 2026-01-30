@@ -1,0 +1,18 @@
+import { initializeApp } from "firebase/app";
+import { getFirestore } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBwh9KvSYkZuSA1fq1A7QVhHLx2B6H3uNA",
+  authDomain: "innomatrics-employee.firebaseapp.com",
+  projectId: "innomatrics-employee",
+  storageBucket: "innomatrics-employee.appspot.com",
+  messagingSenderId: "806122281643",
+  appId: "1:806122281643:web:30bb3401e1f244ae4ef5ee",
+  measurementId: "G-7QQWBYVTFY",
+};
+
+const app = initializeApp(firebaseConfig);
+
+export const db = getFirestore(app);
+export const auth = getAuth(app);
