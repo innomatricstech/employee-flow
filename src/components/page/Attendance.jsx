@@ -14,7 +14,7 @@ const Attendance = () => {
   const [todaySession, setTodaySession] = useState(null);
   const [history, setHistory] = useState([]);
 
-  // Safe time formatter
+  // 🔹 Safe time formatter
   const formatTime = (time) => {
     if (!time) return "-";
 
@@ -30,10 +30,9 @@ const Attendance = () => {
     return date.toLocaleString();
   };
 
+  // 🔹 Fetch attendance
   useEffect(() => {
     if (!user?.loginEmail) return;
-
-    const today = new Date().toISOString().split("T")[0];
 
     const q = query(
       collection(db, "workSessions"),
@@ -42,18 +41,22 @@ const Attendance = () => {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list = [];
+      const list = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
 
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        list.push({ id: doc.id, ...data });
-
-        if (data.date === today) {
-          setTodaySession(data);
-        }
-      });
-
+      // ✅ FULL HISTORY (ALL TIME)
       setHistory(list);
+
+      // ✅ TODAY'S LATEST SESSION
+      const today = new Date().toISOString().split("T")[0];
+
+      const todayLatest = list.find(
+        item => item.date === today
+      );
+
+      setTodaySession(todayLatest || null);
     });
 
     return () => unsubscribe();
@@ -63,7 +66,7 @@ const Attendance = () => {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-6">
       <div className="max-w-6xl mx-auto space-y-8">
 
-        {/* Header */}
+        {/* ================= HEADER ================= */}
         <div>
           <h1 className="text-3xl font-bold text-gray-800">
             Attendance Dashboard
@@ -73,7 +76,7 @@ const Attendance = () => {
           </p>
         </div>
 
-        {/* TODAY CARD */}
+        {/* ================= TODAY CARD ================= */}
         <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
           <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-5">
             <h2 className="text-xl font-semibold text-white">
@@ -90,7 +93,7 @@ const Attendance = () => {
                     Check In
                   </p>
                   <p className="text-lg font-bold text-gray-800 mt-1">
-                    {formatTime(todaySession.checkInTime || todaySession.loginTime)}
+                    {formatTime(todaySession.loginTime)}
                   </p>
                 </div>
 
@@ -99,7 +102,7 @@ const Attendance = () => {
                     Check Out
                   </p>
                   <p className="text-lg font-bold text-gray-800 mt-1">
-                    {formatTime(todaySession.checkOutTime || todaySession.logoutTime)}
+                    {formatTime(todaySession.logoutTime)}
                   </p>
                 </div>
 
@@ -129,11 +132,11 @@ const Attendance = () => {
           </div>
         </div>
 
-        {/* HISTORY CARD */}
+        {/* ================= HISTORY CARD ================= */}
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
           <div className="bg-gradient-to-r from-gray-800 to-gray-700 p-5">
             <h2 className="text-xl font-semibold text-white">
-              Attendance History
+              Attendance History (All Time)
             </h2>
           </div>
 
@@ -169,11 +172,11 @@ const Attendance = () => {
                         </td>
 
                         <td className="p-3 text-gray-600">
-                          {formatTime(row.checkInTime || row.loginTime)}
+                          {formatTime(row.loginTime)}
                         </td>
 
                         <td className="p-3 text-gray-600">
-                          {formatTime(row.checkOutTime || row.logoutTime)}
+                          {formatTime(row.logoutTime)}
                         </td>
 
                         <td className="p-3">

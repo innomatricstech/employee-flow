@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { db } from "../../firebase";
+
+
 import { collection, addDoc, serverTimestamp, query, where, orderBy, onSnapshot, updateDoc, doc } from "firebase/firestore";
 import { 
   HiClock, 
@@ -25,10 +27,13 @@ import {
 import { FaCoffee } from "react-icons/fa";
 
 const EmployeeFlow = () => {
-  const user = JSON.parse(localStorage.getItem("user"));
+  const user = JSON.parse(localStorage.getItem("user") || "null");
+
+
   
   // States
-  const [loginTime, setLoginTime] = useState("");
+  const [loginTime, setLoginTime] = useState(null);
+
   const [logoutTime, setLogoutTime] = useState("");
   const [workStatus, setWorkStatus] = useState("idle"); // idle, working, break, lunch, completed
   const [breakStart, setBreakStart] = useState("");
@@ -42,24 +47,59 @@ const EmployeeFlow = () => {
   const [todaysSession, setTodaysSession] = useState(null);
   const [workLog, setWorkLog] = useState("");
   const [notifications, setNotifications] = useState([]);
+  const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [lastClosedAt, setLastClosedAt] = useState(null);
+const [lastOpenedAt, setLastOpenedAt] = useState(null);
 
-  const [isSessionActive, setIsSessionActive] = useState(true);
 
-  // Timer effect
-  useEffect(() => {
-    let interval;
-    if (workStatus === "working") {
-      interval = setInterval(() => {
-        setTimer(prev => prev + 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [workStatus]);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+const [isSessionActive, setIsSessionActive] = useState(false);
+useEffect(() => {
+  if (!sessionId || !isSessionActive) return;
+
+  updateDoc(doc(db, "workSessions", sessionId), {
+    lastOpenedAt: serverTimestamp()
+  });
+}, [sessionId, isSessionActive]);
+useEffect(() => {
+  const handleTabClose = () => {
+    if (!sessionId || !isSessionActive) return;
+
+    updateDoc(doc(db, "workSessions", sessionId), {
+      lastClosedAt: serverTimestamp()
+    });
+  };
+
+  window.addEventListener("beforeunload", handleTabClose);
+
+  return () => {
+    window.removeEventListener("beforeunload", handleTabClose);
+  };
+}, [sessionId, isSessionActive]);
+
+
+
+useEffect(() => {
+  if (!isSessionActive || !loginTime) return;
+
+  const loginMs = new Date(loginTime).getTime();
+
+  // ⏱️ set immediately (no 1s delay)
+  setTimer(Math.floor((Date.now() - loginMs) / 1000));
+
+  const interval = setInterval(() => {
+    setTimer(Math.floor((Date.now() - loginMs) / 1000));
+  }, 1000);
+
+  return () => clearInterval(interval);
+}, [loginTime, isSessionActive]);
+
 
  useEffect(() => {
-  if (!user?.loginEmail || !isSessionActive) return;
+  if (!user?.loginEmail) return;
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toISOString().split("T")[0];
 
   const q = query(
     collection(db, "workSessions"),
@@ -71,16 +111,63 @@ const EmployeeFlow = () => {
   const unsubscribe = onSnapshot(
     q,
     (snapshot) => {
-      if (!snapshot.empty) {
-        const session = snapshot.docs[0].data();
+if (snapshot.empty && !isCreatingSession && !isSessionActive) {
+  setSessionId(null);
+  setWorkStatus("idle");
+  setIsSessionActive(false);
+  return;
+}
 
-        setLoginTime(session.loginTime?.toDate?.() || null);
-        setBreakStart(session.breakStart?.toDate?.() || null);
-        setBreakEnd(session.breakEnd?.toDate?.() || null);
-        setLunchStart(session.lunchStart?.toDate?.() || null);
-        setLunchEnd(session.lunchEnd?.toDate?.() || null);
-        setLogoutTime(session.logoutTime?.toDate?.() || null);
-      }
+
+
+      if (!snapshot.docs.length) return;
+
+
+      // ✅ ALWAYS PICK LATEST SESSION
+     
+const docSnap = snapshot.docs[0];  
+ const session = docSnap.data();   
+
+
+ setSessionId(docSnap.id);
+ setLoginTime(session.loginTime?.toDate?.() || null);
+setTotalHours(session.totalHours || "");
+
+     
+
+     
+      setBreakStart(session.breakStart?.toDate?.() || null);
+      setBreakEnd(session.breakEnd?.toDate?.() || null);
+      setLunchStart(session.lunchStart?.toDate?.() || null);
+      setLunchEnd(session.lunchEnd?.toDate?.() || null);
+      setLogoutTime(session.logoutTime?.toDate?.() || null);
+
+      setLastClosedAt(session.lastClosedAt?.toDate?.() || null);
+setLastOpenedAt(session.lastOpenedAt?.toDate?.() || null);
+
+if (session.status === "completed") {
+  setWorkStatus("idle");
+} else {
+  setWorkStatus(session.status || "idle");
+}
+
+
+if (!isCreatingSession) {
+  const active = session.status !== "completed";
+
+  setIsSessionActive(prev => {
+    if (prev !== active) {
+      localStorage.setItem("workSessionActive", active ? "true" : "false");
+      return active;
+    }
+    return prev;
+  });
+}
+
+
+
+ 
+
     },
     (error) => {
       console.error("Snapshot error:", error);
@@ -88,7 +175,8 @@ const EmployeeFlow = () => {
   );
 
   return () => unsubscribe();
-}, [user, isSessionActive]);
+}, [user?.loginEmail, isCreatingSession]);
+
 
 
  const formatTime = (time) => {
@@ -142,37 +230,49 @@ const EmployeeFlow = () => {
     }
   };
 
-  // LOGIN
-  const handleLogin = async () => {
-    if (!user) {
+const handleLogin = async () => {
+  if (!user || isSessionActive) return;
 
-      return;
-    }
+  setIsLoading(true);
+  setIsCreatingSession(true);
 
-    setIsLoading(true);
-    try {
-      const loginTimestamp = new Date();
-      setLoginTime(loginTimestamp);
+  try {
+    const loginTimestamp = new Date();
 
-      setWorkStatus("working");
-      setTimer(0);
-
-      await createSession({
-        employeeId: user.employeeId,
-        employeeName: user.name,
-        employeeEmail: user.loginEmail,
-        loginTime: loginTimestamp,
-        status: "working"
-      });
-
-      addNotification("Session Started", "You have successfully logged in for work", "success");
-    } catch (error) {
-      console.error("Login error:", error);
     
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    setWorkStatus("working");
+    setIsSessionActive(true);
+    localStorage.setItem("workSessionActive", "true");
+
+
+
+
+    await createSession({
+      employeeId: user.employeeId,
+      employeeName: user.name,
+      employeeEmail: user.loginEmail,
+      loginTime: loginTimestamp,
+      status: "working"
+    });
+
+    addNotification(
+      "Session Started",
+      "You have successfully logged in for work",
+      "success"
+    );
+
+    // ❌ NO NAVIGATION HERE
+
+  } catch (error) {
+    console.error("Login error:", error);
+  } finally {
+    setIsCreatingSession(false);
+    setIsLoading(false);
+  }
+};
+
+
+
 
   // BREAK START
   const handleBreakStart = async () => {
@@ -236,9 +336,8 @@ const EmployeeFlow = () => {
 
     addNotification("Lunch Ended", "Back to work!", "success");
   };
-
 const handleLogout = async () => {
-  if (!window.confirm("Are you sure you want to log out?")) return;
+
 
   setIsLoading(true);
 
@@ -252,39 +351,26 @@ const handleLogout = async () => {
 
     if (loginTime) {
       const diffMs = logoutTimestamp - loginTime;
-
       const hrs = Math.floor(diffMs / 3600000);
       const mins = Math.floor((diffMs % 3600000) / 60000);
-
       totalWorkHours = `${hrs}:${mins.toString().padStart(2, "0")}`;
       setTotalHours(totalWorkHours);
     }
+await updateSession({
+  logoutTime: logoutTimestamp,
+  status: "completed",
+  totalHours: totalWorkHours,
+  workDuration: timer,
+  workLog
+});
 
-    await updateSession({
-      logoutTime: logoutTimestamp,
-      status: "completed",
-      totalHours: totalWorkHours,
-      workDuration: timer,
-      workLog
-    });
+localStorage.setItem("workSessionActive", "false");
 
-    setIsSessionActive(false);
 
-    addNotification("Session Completed", "Logged out successfully", "success");
+setIsSessionActive(false);
 
-    setTimeout(() => {
-      setSessionId(null);
-      setLoginTime(null);
-      setBreakStart(null);
-      setBreakEnd(null);
-      setLunchStart(null);
-      setLunchEnd(null);
-      setLogoutTime(null);
-      setTotalHours("");
-      setWorkStatus("idle");
-      setTimer(0);
-      setWorkLog("");
-    }, 1000);
+addNotification("Session Completed", "Logged out successfully", "success");
+
 
   } catch (error) {
     console.error("Logout error:", error);
@@ -292,6 +378,7 @@ const handleLogout = async () => {
     setIsLoading(false);
   }
 };
+
 
   // Helper functions
   const calculateDuration = (start, end) => {
@@ -348,21 +435,27 @@ const handleLogout = async () => {
     }
   };
 
-  const canPerformAction = (action) => {
-    const validTransitions = {
-      idle: ['login'],
-      working: ['breakStart', 'lunchStart', 'logout'],
-      break: ['breakEnd'],
-      lunch: ['lunchEnd'],
-      completed: []
-    };
-    return validTransitions[workStatus]?.includes(action) || false;
-  };
+ const canPerformAction = (action) => {
+  // ✅ Login allowed ONLY if no active session
+  if (action === "login") {
+    return !isSessionActive;
+  }
+
+  const validTransitions = {
+  working: ["breakStart", "lunchStart", "logout"],
+  break: ["breakEnd", "logout"],
+  lunch: ["lunchEnd", "logout"],
+};
+
+
+  return validTransitions[workStatus]?.includes(action) || false;
+};
 
   
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-4 md:p-8">
+    <div className="w-full bg-gradient-to-br from-gray-50 to-blue-50 p-4 md:p-8">
+
       <div className="max-w-6xl mx-auto">
         
         {/* Header */}
@@ -497,8 +590,8 @@ const handleLogout = async () => {
                     <span className="text-xs mt-1">Back to Work</span>
                   </button>
 
-                  <button
-                    onClick={handleLogout}
+                 <button onClick={() => setShowLogoutModal(true)}
+
                     disabled={!canPerformAction('logout') || isLoading}
                     className={`flex flex-col items-center justify-center p-4 rounded-xl transition-all ${
                       canPerformAction('logout')
@@ -557,12 +650,12 @@ const handleLogout = async () => {
                     <p className="text-sm text-gray-600">{user?.employeeId || "ID: N/A"}</p>
                   </div>
                 </div>
-                <div className="pt-4 border-t border-blue-100">
+                {/* <div className="pt-4 border-t border-blue-100">
                   <p className="text-sm text-gray-600 mb-2">Today's Session ID</p>
                   <p className="font-mono text-sm text-gray-800 bg-white px-3 py-2 rounded-lg">
                     {sessionId ? sessionId.substring(0, 8) + "..." : "No active session"}
                   </p>
-                </div>
+                </div> */}
               </div>
             </div>
 
@@ -577,6 +670,16 @@ const handleLogout = async () => {
                   <span className="text-gray-600">Login Time</span>
                   <span className="font-medium">{formatTime(loginTime)}</span>
                 </div>
+                <div className="flex justify-between items-center py-2 border-b border-gray-100">
+  <span className="text-gray-600">Last Closed</span>
+  <span className="font-medium">{formatTime(lastClosedAt)}</span>
+</div>
+
+<div className="flex justify-between items-center py-2 border-b border-gray-100">
+  <span className="text-gray-600">Last Reopened</span>
+  <span className="font-medium">{formatTime(lastOpenedAt)}</span>
+</div>
+
                 <div className="flex justify-between items-center py-2 border-b border-gray-100">
                   <span className="text-gray-600">Break</span>
                   <span className="font-medium">
@@ -606,16 +709,18 @@ const handleLogout = async () => {
 
         {/* Notifications */}
         {notifications.length > 0 && (
-          <div className="fixed bottom-4 right-4 space-y-2 z-50">
+          <div className="fixed bottom-4 right-4 space-y-2 z-30 pointer-events-none">
+
             {notifications.map(notification => (
-              <div
-                key={notification.id}
-                className={`bg-white rounded-xl shadow-lg border p-4 max-w-sm animate-slide-in-right ${
-                  notification.type === 'success' ? 'border-green-200 bg-green-50' :
-                  notification.type === 'info' ? 'border-blue-200 bg-blue-50' :
-                  'border-gray-200'
-                }`}
-              >
+            <div
+  key={notification.id}
+  className={`pointer-events-auto bg-white rounded-xl shadow-lg border p-4 max-w-sm animate-slide-in-right ${
+    notification.type === 'success' ? 'border-green-200 bg-green-50' :
+    notification.type === 'info' ? 'border-blue-200 bg-blue-50' :
+    'border-gray-200'
+  }`}
+>
+
                 <div className="flex items-center gap-3">
                   <div className={`p-2 rounded-lg ${
                     notification.type === 'success' ? 'bg-green-100 text-green-600' :
@@ -637,6 +742,41 @@ const handleLogout = async () => {
 
         
       </div>
+      {showLogoutModal && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 animate-scale-in">
+      
+      <h3 className="text-xl font-bold text-gray-800 mb-3">
+        Confirm Logout
+      </h3>
+
+      <p className="text-gray-600 mb-6">
+        Are you sure you want to end your work session?
+      </p>
+
+      <div className="flex justify-end gap-3">
+        <button
+          onClick={() => setShowLogoutModal(false)}
+          className="px-4 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-100"
+        >
+          Cancel
+        </button>
+
+        <button
+          onClick={() => {
+            setShowLogoutModal(false);
+            handleLogout();
+          }}
+          className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700"
+        >
+          Logout
+        </button>
+      </div>
+
+    </div>
+  </div>
+)}
+
     </div>
   );
 };

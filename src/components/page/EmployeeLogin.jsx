@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { db } from "../../firebase";
 import { collection, query, where, getDocs } from "firebase/firestore";
+import { useAuth } from "./../../AuthContext";
+
 
 
 
@@ -30,6 +32,8 @@ const EmployeeLogin = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
   const [particles, setParticles] = useState([]);
+  const { login } = useAuth();
+
 
   // Create floating particles
   useEffect(() => {
@@ -54,6 +58,7 @@ const EmployeeLogin = () => {
     return;
   }
 
+  
   setError("");
   setLoading(true);
 
@@ -67,18 +72,15 @@ const EmployeeLogin = () => {
 
     const snapshot = await getDocs(q);
 if (!snapshot.empty) {
+  
   const userData = snapshot.docs[0].data();
 
   console.log("Login Success:", userData.loginEmail);
 
-  // ✅ Save multiple keys (covers most ProtectedRoute checks)
-  localStorage.setItem("user", JSON.stringify(userData));
-  localStorage.setItem("isLoggedIn", "true");
-  localStorage.setItem("token", "employee_logged");
+login(userData);
+navigate("/", { replace: true });
 
-  console.log("Navigating to home...");
 
-  navigate("/");
 }
 
 else {
@@ -104,7 +106,8 @@ else {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 via-indigo-900 to-purple-900 overflow-hidden relative">
       
       {/* Animated Background Particles */}
-      <div className="absolute inset-0 overflow-hidden">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+
         {particles.map((particle) => (
           <div
             key={particle.id}
@@ -121,10 +124,12 @@ else {
       </div>
 
       {/* Glowing Orbs */}
-      <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse" />
-      <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse delay-1000" />
-      <div className="absolute top-3/4 left-3/4 w-48 h-48 bg-indigo-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse delay-500" />
+<div className="absolute top-1/4 left-1/4 w-64 h-64 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse pointer-events-none" />
 
+<div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse delay-1000 pointer-events-none" />
+
+<div className="absolute top-3/4 left-3/4 w-48 h-48 bg-indigo-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse delay-500 pointer-events-none" />
+      
       <div className="relative z-10 w-full max-w-md px-4">
         {/* Login Card */}
         <div className="bg-white/95 backdrop-blur-lg rounded-3xl shadow-2xl overflow-hidden transform transition-all duration-300 hover:shadow-3xl">

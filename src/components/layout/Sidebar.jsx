@@ -12,7 +12,8 @@ import {
   HiChevronRight,
   HiUserCircle,
   HiChat,
-  HiCalendar
+  HiCalendar,
+  HiDocumentText
 } from 'react-icons/hi'
 
 
@@ -20,36 +21,37 @@ import {
 import logo from "../../assets/logo.png"
 
 import { useNavigate, useLocation } from "react-router-dom";
+import { useAuth } from "../../AuthContext";
 
-import { auth } from "../../firebase";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+
+
 
 const Sidebar = () => {
 
   const [isCollapsed, setIsCollapsed] = useState(false)
-  const [userData, setUserData] = useState(null)
+
 
   const navigate = useNavigate()
   const location = useLocation()
 
-  // ✅ Fetch Logged User Automatically
-  useEffect(() => {
+const { logout } = useAuth();
 
-    const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUserData(user)
-      }
-    })
+const handleLogout = () => {
+  const isWorking = localStorage.getItem("workSessionActive") === "true";
 
-    return unsub
-
-  }, [])
-
-  // ✅ Logout
-  const handleLogout = async () => {
-    await signOut(auth)
-    navigate("/login")
+  if (isWorking) {
+    alert("Please end your work session before logging out.");
+    return;
   }
+
+  // clear auth only
+  localStorage.removeItem("user");
+  localStorage.removeItem("isLoggedIn");
+  localStorage.removeItem("loginTime");
+
+  navigate("/login", { replace: true });
+};
+
 
   // ✅ Route based menu
   const menuItems = [
@@ -58,6 +60,7 @@ const Sidebar = () => {
     { path: '/attendance', label: 'Attendance', icon: <HiClock /> },
     { path: '/reports', label: 'Reports', icon: <HiChartBar /> },
     { path: '/calendar', label: 'Calendar', icon: <HiCalendar />},
+     { path: '/request', label: 'Apply Request', icon: <HiDocumentText />},
     // { path: '/message', label: 'Messages', icon: <HiChat /> },
     // { path: '/settings', label: 'Settings', icon: <HiCog /> },
   ]
