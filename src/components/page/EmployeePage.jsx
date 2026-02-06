@@ -50,6 +50,9 @@ const EmployeeFlow = () => {
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [lastClosedAt, setLastClosedAt] = useState(null);
 const [lastOpenedAt, setLastOpenedAt] = useState(null);
+const [workedSeconds, setWorkedSeconds] = useState(0);
+const [workStartAt, setWorkStartAt] = useState(null);
+
 
 
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -79,21 +82,16 @@ useEffect(() => {
 }, [sessionId, isSessionActive]);
 
 
-
 useEffect(() => {
-  if (!isSessionActive || !loginTime) return;
-
-  const loginMs = new Date(loginTime).getTime();
-
-  // ⏱️ set immediately (no 1s delay)
-  setTimer(Math.floor((Date.now() - loginMs) / 1000));
+  if (workStatus !== "working" || !workStartAt) return;
 
   const interval = setInterval(() => {
-    setTimer(Math.floor((Date.now() - loginMs) / 1000));
+    const diff = Math.floor((Date.now() - workStartAt.getTime()) / 1000);
+    setTimer(workedSeconds + diff);
   }, 1000);
 
   return () => clearInterval(interval);
-}, [loginTime, isSessionActive]);
+}, [workStatus, workStartAt, workedSeconds]);
 
 
  useEffect(() => {
@@ -239,13 +237,13 @@ const handleLogin = async () => {
   try {
     const loginTimestamp = new Date();
 
-    
     setWorkStatus("working");
     setIsSessionActive(true);
+    setWorkStartAt(loginTimestamp);   // ✅ START TIMER
+    setWorkedSeconds(0);              // ✅ RESET
+    setTimer(0);
+
     localStorage.setItem("workSessionActive", "true");
-
-
-
 
     await createSession({
       employeeId: user.employeeId,
@@ -255,16 +253,7 @@ const handleLogin = async () => {
       status: "working"
     });
 
-    addNotification(
-      "Session Started",
-      "You have successfully logged in for work",
-      "success"
-    );
-
-    // ❌ NO NAVIGATION HERE
-
-  } catch (error) {
-    console.error("Login error:", error);
+    addNotification("Session Started", "You have successfully logged in", "success");
   } finally {
     setIsCreatingSession(false);
     setIsLoading(false);
@@ -274,106 +263,114 @@ const handleLogin = async () => {
 
 
 
-  // BREAK START
-  const handleBreakStart = async () => {
-    const breakStartTime = new Date();
-    setBreakStart(breakStartTime);
-    setWorkStatus("break");
+ const handleBreakStart = async () => {
+  const now = new Date();
 
-    await updateSession({
-      breakStart: breakStartTime,
-      status: "break",
-      workLog
-    });
+  // ✅ accumulate worked time
+  if (workStartAt) {
+    const diff = Math.floor((now - workStartAt) / 1000);
+    setWorkedSeconds(prev => prev + diff);
+  }
 
-    addNotification("Break Started", "Take a short break and recharge", "info");
-  };
+  setWorkStartAt(null); // ⏸ pause
+  setBreakStart(now);
+  setWorkStatus("break");
 
-  // BREAK END
-  const handleBreakEnd = async () => {
-    const breakEndTime = new Date();
-    setBreakEnd(breakEndTime);
+  await updateSession({
+    breakStart: now,
+    status: "break",
+    workDuration: workedSeconds
+  });
 
-    setWorkStatus("working");
+  addNotification("Break Started", "Take a short break", "info");
+};
 
-    await updateSession({
-      breakEnd: breakEndTime,
-      status: "working",
-      breakDuration: calculateDuration(breakStart, breakEndTime),
-      workLog
-    });
 
-    addNotification("Break Ended", "Welcome back to work!", "success");
-  };
+ const handleBreakEnd = async () => {
+  const now = new Date();
 
-  // LUNCH START
-  const handleLunchStart = async () => {
-    const lunchStartTime = new Date();
-    setLunchStart(lunchStartTime);
-    setWorkStatus("lunch");
+  setBreakEnd(now);
+  setWorkStartAt(now);     // ▶ resume
+  setWorkStatus("working");
 
-    await updateSession({
-      lunchStart: lunchStartTime,
-      status: "lunch",
-      workLog
-    });
+  await updateSession({
+    breakEnd: now,
+    status: "working",
+    breakDuration: calculateDuration(breakStart, now)
+  });
 
-    addNotification("Lunch Started", "Enjoy your meal!", "info");
-  };
+  addNotification("Break Ended", "Back to work!", "success");
+};
 
-  // LUNCH END
-  const handleLunchEnd = async () => {
-    const lunchEndTime = new Date();
-    setLunchEnd(lunchEndTime);
-    setWorkStatus("working");
 
-    await updateSession({
-      lunchEnd: lunchEndTime,
-      status: "working",
-      lunchDuration: calculateDuration(lunchStart, lunchEndTime),
-      workLog
-    });
+ const handleLunchStart = async () => {
+  const now = new Date();
 
-    addNotification("Lunch Ended", "Back to work!", "success");
-  };
+  if (workStartAt) {
+    const diff = Math.floor((now - workStartAt) / 1000);
+    setWorkedSeconds(prev => prev + diff);
+  }
+
+  setWorkStartAt(null); // ⏸ pause
+  setLunchStart(now);
+  setWorkStatus("lunch");
+
+  await updateSession({
+    lunchStart: now,
+    status: "lunch",
+    workDuration: workedSeconds
+  });
+
+  addNotification("Lunch Started", "Enjoy your meal!", "info");
+};
+
+ const handleLunchEnd = async () => {
+  const now = new Date();
+
+  setLunchEnd(now);
+  setWorkStartAt(now); // ▶ resume
+  setWorkStatus("working");
+
+  await updateSession({
+    lunchEnd: now,
+    status: "working",
+    lunchDuration: calculateDuration(lunchStart, now)
+  });
+
+  addNotification("Lunch Ended", "Back to work!", "success");
+};
+
+
+
 const handleLogout = async () => {
-
-
   setIsLoading(true);
 
   try {
-    const logoutTimestamp = new Date();
+    const now = new Date();
+    let totalWorked = workedSeconds;
 
-    setLogoutTime(logoutTimestamp);
+    if (workStatus === "working" && workStartAt) {
+      totalWorked += Math.floor((now - workStartAt) / 1000);
+    }
+
+    setTimer(totalWorked);
     setWorkStatus("completed");
 
-    let totalWorkHours = "";
+    const hrs = Math.floor(totalWorked / 3600);
+    const mins = Math.floor((totalWorked % 3600) / 60);
+    const totalHours = `${hrs}:${mins.toString().padStart(2, "0")}`;
 
-    if (loginTime) {
-      const diffMs = logoutTimestamp - loginTime;
-      const hrs = Math.floor(diffMs / 3600000);
-      const mins = Math.floor((diffMs % 3600000) / 60000);
-      totalWorkHours = `${hrs}:${mins.toString().padStart(2, "0")}`;
-      setTotalHours(totalWorkHours);
-    }
-await updateSession({
-  logoutTime: logoutTimestamp,
-  status: "completed",
-  totalHours: totalWorkHours,
-  workDuration: timer,
-  workLog
-});
+    await updateSession({
+      logoutTime: now,
+      status: "completed",
+      workDuration: totalWorked,
+      totalHours
+    });
 
-localStorage.setItem("workSessionActive", "false");
+    setIsSessionActive(false);
+    localStorage.setItem("workSessionActive", "false");
 
-
-setIsSessionActive(false);
-
-addNotification("Session Completed", "Logged out successfully", "success");
-
-
-  } catch (error) {
-    console.error("Logout error:", error);
+    addNotification("Session Completed", "Logged out successfully", "success");
   } finally {
     setIsLoading(false);
   }
@@ -650,12 +647,7 @@ addNotification("Session Completed", "Logged out successfully", "success");
                     <p className="text-sm text-gray-600">{user?.employeeId || "ID: N/A"}</p>
                   </div>
                 </div>
-                {/* <div className="pt-4 border-t border-blue-100">
-                  <p className="text-sm text-gray-600 mb-2">Today's Session ID</p>
-                  <p className="font-mono text-sm text-gray-800 bg-white px-3 py-2 rounded-lg">
-                    {sessionId ? sessionId.substring(0, 8) + "..." : "No active session"}
-                  </p>
-                </div> */}
+             
               </div>
             </div>
 
